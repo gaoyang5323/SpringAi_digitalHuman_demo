@@ -1,0 +1,14 @@
+git clone https://github.com/lipku/LiveTalking.git 
+conda create -n livetalking python=3.12
+conda activate livetalking
+# 如果 CUDA 版本不为 12.8 (运行 nvidia-smi 确认)，请根据 PyTorch 官网(https://pytorch.org/get-started/previous-versions)安装对应版本
+pip install torch==2.9.1 torchvision==0.24.1 torchaudio==2.9.1 --index-url https://download.pytorch.org/whl/cu128
+cd LiveTalking
+pip install -r requirements.txt
+
+将 wav2lip256.pth 拷贝到项目的 models/ 目录下，重命名为 wav2lip.pth
+将 wav2lip256_avatar1.tar.gz 解压后整个文件夹拷贝到 data/avatars/ 目录下
+
+python app.py --transport webrtc --model wav2lip --avatar_id wav2lip256_avatar1
+
+http://localhost:8010/index.html

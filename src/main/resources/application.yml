@@ -1,0 +1,107 @@
+spring:
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 50MB
+  application:
+    name: gaoyang-spring-ai
+  datasource:
+    url: jdbc:postgresql://localhost:5432/postgres
+    username: postgres
+    password: 123456
+    driver-class-name: org.postgresql.Driver
+  ai:
+    vectorstore:
+      pgvector:
+        initialize-schema: true
+        dimensions: 768
+        index-type: HNSW
+        distance-type: COSINE_DISTANCE
+    mcp:
+      client:
+        enabled: true
+        name: gaoyang-mcp-client
+        version: 1.0.0
+        type: SYNC
+        toolcallback:
+          enabled: true
+        streamable-http:
+          connections:
+          # MCP 服务 1：本地生活服务（当前进程自身 MCP Server）
+          #  life:
+          #    url: http://localhost:8088
+          #    endpoint: /mcp
+          # MCP 服务 2：天气服务（示例，需另行启动）
+          # weather:
+          #   url: http://localhost:8089
+          #   endpoint: /mcp
+      server:
+        name: gaoyang-mcp-server
+        version: 1.0.0
+        # SSE 连接端点（客户端 GET 建立长连接），默认 /sse
+        sse-endpoint: /sse
+        # 消息端点（客户端 POST 发送工具调用），默认 /mcp/message
+        sse-message-endpoint: /mcp/messages
+        # 同进程内 MCP Client/Server 共存时禁用 server 侧 tool-callback-converter,
+        # 避免 syncTools Bean 触发 McpSyncClient.initialize() 导致启动超时
+        tool-callback-converter: false
+    model:
+      chat: ollama
+      embedding: ollama
+    ollama:
+      base-url: http://localhost:11434
+      chat:
+        model: Qwen2.5:7b
+        temperature: 0.7
+        num-predict: 1024
+      embedding:
+        model: nomic-embed-text
+      init:
+        timeout: 1m
+    chat:
+      memory:
+        repository:
+          jdbc:
+            initialize-schema: always
+
+  data:
+    redis:
+      host: 127.0.0.1
+      port: 6379
+      password: 123456
+      database: 0
+      lettuce:
+        pool:
+          max-active: 8
+          max-idle: 8
+          min-idle: 2
+
+
+mybatis-plus:
+  #mapper xml位置,默认即classpath*:/mapper/**/*.xml,此处显式声明
+  mapper-locations: classpath*:/mapper/**/*.xml
+  configuration:
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+
+mcp:
+  auth:
+    # MCP Server 凭证，客户端需携带 Authorization: Bearer <token> 访问
+    token: 123
+
+livetalking:
+  base-url: http://localhost:8010
+
+speaches:
+  base-url: http://localhost:8000
+  model: Systran/faster-distil-whisper-large-v3
+
+searxng:
+  base-url: http://localhost:8888
+
+logging:
+  level:
+    # SimpleLoggerAdvisorDEBUG
+    org.springframework.ai.chat.client.advisor: DEBUG
+    # OpenAI/HTTP
+    org.springframework.ai.openai: DEBUG
+    org.springframework.ai.ollama: DEBUG

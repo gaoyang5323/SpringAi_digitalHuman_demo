@@ -1,0 +1,8 @@
+pip install faster-whisper
+
+#如果有 NVIDIA 显卡，建议再装 CUDA 12 相关依赖
+pip install nvidia-cublas-cu12 nvidia-cudnn-cu12
+
+关联文件:
+faster-whisper.py
+start-faster-whisper.bat
