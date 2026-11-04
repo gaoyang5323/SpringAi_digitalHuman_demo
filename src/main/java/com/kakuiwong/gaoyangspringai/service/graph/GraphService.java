@@ -1,10 +1,7 @@
 package com.kakuiwong.gaoyangspringai.service.graph;
 
 import com.alibaba.cloud.ai.graph.*;
-import com.alibaba.cloud.ai.graph.action.AsyncEdgeAction;
-import com.alibaba.cloud.ai.graph.action.AsyncNodeAction;
-import com.alibaba.cloud.ai.graph.action.InterruptableAction;
-import com.alibaba.cloud.ai.graph.action.InterruptionMetadata;
+import com.alibaba.cloud.ai.graph.action.*;
 import com.alibaba.cloud.ai.graph.checkpoint.config.SaverConfig;
 import com.alibaba.cloud.ai.graph.checkpoint.savers.postgresql.PostgresSaver;
 import com.alibaba.cloud.ai.graph.exception.GraphStateException;
@@ -17,9 +14,12 @@ import org.springframework.context.annotation.Configuration;
 
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.CompletableFuture;
 
 @Configuration
 public class GraphService {
+
+    public final static String HUMAN_FEEDBACK = "human_feedback";
 
     @Autowired
     ChatClient ttsChatClient;
@@ -83,19 +83,31 @@ public class GraphService {
             }
         });
 
-        InterruptableAction interruptableAction = (nodeId, state, config) -> {
-            Optional<String> approval = state.value("approval", String.class);
-            if (approval.isEmpty()) {
-                // 返回 InterruptionMetadata 来中断执行
-                InterruptionMetadata interruption = InterruptionMetadata.builder(nodeId, state)
-                        .addMetadata("message", "等待用户输入...")
-                        .addMetadata("node", nodeId)
-                        .build();
-                return Optional.of(interruption);
+
+        class InterruptableNodeAction implements AsyncNodeActionWithConfig, InterruptableAction {
+
+            @Override
+            public CompletableFuture<Map<String, Object>> apply(OverAllState state, RunnableConfig config) {
+                return CompletableFuture.completedFuture(Map.of());
             }
 
-            return Optional.empty();
-        };
+            @Override
+            public Optional<InterruptionMetadata> interrupt(String nodeId, OverAllState state, RunnableConfig config) {
+                Optional<Object> humanFeedback = state.value("approval");
+
+                if (humanFeedback.isEmpty() || !humanFeedback.get().equals("ok")) {
+                    // 返回 InterruptionMetadata 来中断执行
+                    InterruptionMetadata interruption = InterruptionMetadata.builder(nodeId, state)
+                            .addMetadata("message", "等待用户确定...")
+                            .addMetadata("node", nodeId)
+                            .build();
+
+                    return Optional.of(interruption);
+                }
+                // 如果已经有 human_feedback，继续执行
+                return Optional.empty();
+            }
+        }
 
 
         StateGraph stateGraph = new StateGraph(keyStrategyFactory);
@@ -104,6 +116,7 @@ public class GraphService {
         stateGraph.addNode("chatNodeWithoutTool", chatNodeWithoutTool);
         stateGraph.addNode("printNode", printNode);
         stateGraph.addNode("endPrintNode", endPrintNode);
+        stateGraph.addNode(HUMAN_FEEDBACK, new InterruptableNodeAction());
 
         stateGraph.addEdge(StateGraph.START, "printNode");
         stateGraph.addConditionalEdges("printNode", routerEdgeAction,
@@ -112,7 +125,9 @@ public class GraphService {
 
         stateGraph.addEdge("chatNodeWithTool", StateGraph.END);
 
-        stateGraph.addEdge("chatNodeWithoutTool", "endPrintNode");
+        stateGraph.addEdge("chatNodeWithoutTool", HUMAN_FEEDBACK);
+        stateGraph.addEdge(HUMAN_FEEDBACK, "endPrintNode");
+
         stateGraph.addEdge("endPrintNode", StateGraph.END);
 
         return stateGraph.compile(CompileConfig.builder()

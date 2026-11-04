@@ -3,7 +3,9 @@ package com.kakuiwong.gaoyangspringai.controller.graph;
 import com.alibaba.cloud.ai.graph.CompiledGraph;
 import com.alibaba.cloud.ai.graph.OverAllState;
 import com.alibaba.cloud.ai.graph.RunnableConfig;
+import com.alibaba.cloud.ai.graph.StateGraph;
 import com.alibaba.cloud.ai.graph.state.StateSnapshot;
+import com.kakuiwong.gaoyangspringai.service.graph.GraphService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
@@ -61,33 +63,26 @@ public class GraphController {
             @RequestParam String approval) {
         try {
             RunnableConfig config = RunnableConfig.builder().threadId(threadId).build();
-            
+
             // 获取当前状态
             StateSnapshot snapshot = graph.getState(config);
 
             if (snapshot == null || snapshot.state() == null) {
-                log.warn("未找到执行状态, threadId: {}", threadId);
                 return "未找到执行状态";
             }
-            
-            // 打印当前状态信息用于调试
-            log.info("当前状态 - node: {}, next: {}, isEND: {}", 
-                    snapshot.node(), snapshot.next(), snapshot.isEND());
 
-            // 检查是否已经执行完成
-            if (snapshot.isEND()) {
-                log.info("工作流已执行完成, threadId: {}", threadId);
+            if (StateGraph.END.equals(snapshot.next())) {
                 return snapshot.state().value("result", String.class).orElse("已完成");
             }
 
-            // 恢复执行（传入 null 表示从中断点继续执行）
-            RunnableConfig updateState = graph.updateState(config,(Map<String, Object>) null);
-            Optional<OverAllState> invoke = graph.invoke((Map<String, Object>) null, updateState);
+            var updatedConfig = graph.updateState(config, Map.of("approval", approval), GraphService.HUMAN_FEEDBACK);
+            RunnableConfig resumeConfig = RunnableConfig.builder(updatedConfig)
+                    .addMetadata(RunnableConfig.HUMAN_FEEDBACK_METADATA_KEY, "placeholder")
+                    .build();
 
-            String result = invoke.flatMap(state -> state.value("result", String.class))
-                    .orElse("恢复执行完成");
-            log.info("恢复执行完成, result: {}", result);
-            return result;
+
+            graph.invoke((Map<String, Object>) null, resumeConfig);
+            return "恢复成功";
         } catch (Exception e) {
             log.error("恢复执行失败, threadId: {}", threadId, e);
             return "恢复失败: " + e.getMessage();
