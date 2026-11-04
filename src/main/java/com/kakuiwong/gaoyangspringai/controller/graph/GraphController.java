@@ -80,7 +80,8 @@ public class GraphController {
                 return "审批不执行";
             }
 
-            var updatedConfig = graph.updateState(config, Map.of("approval", approval), GraphService.HUMAN_FEEDBACK);
+            // 指定 nodeId 为 next() 节点，让框架从下一个节点开始执行
+            var updatedConfig = graph.updateState(config, Map.of("approval", approval));
 
             RunnableConfig resumeConfig = RunnableConfig.builder(updatedConfig)
                     .addMetadata(RunnableConfig.HUMAN_FEEDBACK_METADATA_KEY, "placeholder")

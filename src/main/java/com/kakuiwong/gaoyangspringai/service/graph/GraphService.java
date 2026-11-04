@@ -46,7 +46,6 @@ public class GraphService {
 
         AsyncNodeAction printNode = AsyncNodeAction.node_async(state -> {
             String query = state.value("query", String.class).orElse("");
-            System.out.println("用户输入->" + query);
             return Map.of();
         });
 
@@ -63,7 +62,14 @@ public class GraphService {
 
         // 不使用工具的节点
         AsyncNodeAction chatNodeWithoutTool = AsyncNodeAction.node_async(state -> {
+            // 检查是否已经执行过（恢复执行的情况）
+            if (state.value("result").isPresent()) {
+                System.out.println("[chatNodeWithoutTool] 跳过执行，result 已存在: " + state.value("result", String.class).get());
+                return Map.of();
+            }
+            
             String query = state.value("query", String.class).orElse("");
+            System.out.println("[chatNodeWithoutTool] 执行节点，query: " + query);
           /*  String response = ttsChatClient.prompt()
                     .user(query)
                     .call()
@@ -73,7 +79,6 @@ public class GraphService {
 
         AsyncNodeAction endPrintNode = AsyncNodeAction.node_async(state -> {
             String query = state.value("query", String.class).orElse("");
-            System.out.println("没用工具->" + query);
             return Map.of();
         });
 
@@ -147,7 +152,6 @@ public class GraphService {
                         .addMetadata("message", "等待用户输入...")
                         .addMetadata("node", nodeId)
                         .build();
-
                 return Optional.of(interruption);
             }
 
