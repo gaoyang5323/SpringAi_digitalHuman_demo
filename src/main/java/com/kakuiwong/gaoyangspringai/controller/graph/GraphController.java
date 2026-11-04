@@ -42,7 +42,7 @@ public class GraphController {
                     RunnableConfig.builder().threadId(threadId).build()
             );
 
-            if (snapshot != null && snapshot.next() != null && !snapshot.isEND()) {
+            if (snapshot != null && snapshot.next() != null && !StateGraph.END.equals(snapshot.next())) {
                 return "工作流已暂停，等待审批。当前状态: " + snapshot.node();
             }
 
