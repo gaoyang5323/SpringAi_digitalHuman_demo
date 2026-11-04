@@ -4,10 +4,14 @@ import com.alibaba.cloud.ai.graph.CompiledGraph;
 import com.alibaba.cloud.ai.graph.OverAllState;
 import com.alibaba.cloud.ai.graph.RunnableConfig;
 import com.alibaba.cloud.ai.graph.StateGraph;
+import com.alibaba.cloud.ai.graph.agent.ReactAgent;
+import com.alibaba.cloud.ai.graph.checkpoint.savers.redis.RedisSaver;
+import com.alibaba.cloud.ai.graph.exception.GraphRunnerException;
 import com.alibaba.cloud.ai.graph.state.StateSnapshot;
 import com.kakuiwong.gaoyangspringai.service.graph.GraphService;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
+import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
@@ -25,6 +29,18 @@ public class GraphController {
 
     @Autowired
     CompiledGraph graph;
+    @Autowired
+    ReactAgent ttsReactAgent;
+
+
+    @GetMapping("/reactAgent")
+    public String reactAgent(@RequestParam String msg, @RequestParam String threadId) throws GraphRunnerException {
+        RunnableConfig runConfig = RunnableConfig.builder()
+                .threadId(threadId)
+                .build();
+        AssistantMessage message = ttsReactAgent.call(msg, runConfig);
+        return message.getText();
+    }
 
     /**
      * 开始执行工作流

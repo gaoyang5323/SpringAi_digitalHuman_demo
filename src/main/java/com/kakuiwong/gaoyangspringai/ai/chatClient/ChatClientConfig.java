@@ -5,6 +5,8 @@ package com.kakuiwong.gaoyangspringai.ai.chatClient;
  * @Description:
  */
 
+import com.alibaba.cloud.ai.graph.agent.ReactAgent;
+import com.alibaba.cloud.ai.graph.checkpoint.savers.postgresql.PostgresSaver;
 import com.kakuiwong.gaoyangspringai.ai.tools.*;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.ai.chat.client.ChatClient;
@@ -153,6 +155,17 @@ public class ChatClientConfig {
                 // .defaultAdvisors(MessageChatMemoryAdvisor.builder(chatMemory).build())
                 .build();
     }
+
+    @Bean
+    public ReactAgent ttsReactAgent(OllamaChatModel miniOllamaChatModel,
+                                    PostgresSaver postgresSaver) {
+        return ReactAgent.builder()
+                .name("ttsReactAgent")
+                .model(miniOllamaChatModel)
+                .saver(postgresSaver)
+                .build();
+    }
+
 
     @Bean
     public ChatClient supervisorChatClient(OllamaChatModel chatModel, ChatMemory chatMemory) {
