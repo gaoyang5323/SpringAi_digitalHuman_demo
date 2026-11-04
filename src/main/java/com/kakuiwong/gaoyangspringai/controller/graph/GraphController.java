@@ -5,8 +5,8 @@ import com.alibaba.cloud.ai.graph.OverAllState;
 import com.alibaba.cloud.ai.graph.RunnableConfig;
 import com.alibaba.cloud.ai.graph.StateGraph;
 import com.alibaba.cloud.ai.graph.state.StateSnapshot;
-import com.kakuiwong.gaoyangspringai.service.graph.GraphService;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.web.bind.annotation.*;
 
@@ -60,7 +60,7 @@ public class GraphController {
     @GetMapping("/resume/{threadId}")
     public String resume(
             @PathVariable String threadId,
-            @RequestParam String approval) {
+            String approval) {
         try {
             RunnableConfig config = RunnableConfig.builder().threadId(threadId).build();
 
@@ -75,7 +75,11 @@ public class GraphController {
                 return snapshot.state().value("result", String.class).orElse("已完成");
             }
 
-            var updatedConfig = graph.updateState(config, Map.of("approval", approval), GraphService.HUMAN_FEEDBACK);
+            if (StringUtils.isBlank(approval) || !approval.equals("ok")) {
+                return "审批不执行";
+            }
+            var updatedConfig = graph.updateState(config, Map.of("approval", approval));
+
             RunnableConfig resumeConfig = RunnableConfig.builder(updatedConfig)
                     .addMetadata(RunnableConfig.HUMAN_FEEDBACK_METADATA_KEY, "placeholder")
                     .build();
