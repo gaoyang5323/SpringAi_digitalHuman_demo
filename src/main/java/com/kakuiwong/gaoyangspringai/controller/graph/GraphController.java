@@ -5,6 +5,7 @@ import com.alibaba.cloud.ai.graph.OverAllState;
 import com.alibaba.cloud.ai.graph.RunnableConfig;
 import com.alibaba.cloud.ai.graph.StateGraph;
 import com.alibaba.cloud.ai.graph.state.StateSnapshot;
+import com.kakuiwong.gaoyangspringai.service.graph.GraphService;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.lang3.StringUtils;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -78,7 +79,8 @@ public class GraphController {
             if (StringUtils.isBlank(approval) || !approval.equals("ok")) {
                 return "审批不执行";
             }
-            var updatedConfig = graph.updateState(config, Map.of("approval", approval));
+
+            var updatedConfig = graph.updateState(config, Map.of("approval", approval), GraphService.HUMAN_FEEDBACK);
 
             RunnableConfig resumeConfig = RunnableConfig.builder(updatedConfig)
                     .addMetadata(RunnableConfig.HUMAN_FEEDBACK_METADATA_KEY, "placeholder")
