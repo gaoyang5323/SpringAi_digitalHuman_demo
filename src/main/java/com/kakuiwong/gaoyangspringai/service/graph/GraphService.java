@@ -1,11 +1,12 @@
 package com.kakuiwong.gaoyangspringai.service.graph;
 
-import com.alibaba.cloud.ai.graph.CompiledGraph;
-import com.alibaba.cloud.ai.graph.KeyStrategy;
-import com.alibaba.cloud.ai.graph.KeyStrategyFactory;
-import com.alibaba.cloud.ai.graph.StateGraph;
+import com.alibaba.cloud.ai.graph.*;
 import com.alibaba.cloud.ai.graph.action.AsyncEdgeAction;
 import com.alibaba.cloud.ai.graph.action.AsyncNodeAction;
+import com.alibaba.cloud.ai.graph.action.InterruptableAction;
+import com.alibaba.cloud.ai.graph.action.InterruptionMetadata;
+import com.alibaba.cloud.ai.graph.checkpoint.config.SaverConfig;
+import com.alibaba.cloud.ai.graph.checkpoint.savers.postgresql.PostgresSaver;
 import com.alibaba.cloud.ai.graph.exception.GraphStateException;
 import com.alibaba.cloud.ai.graph.state.strategy.ReplaceStrategy;
 import com.kakuiwong.gaoyangspringai.ai.tools.LocalWeatherTool;
@@ -15,7 +16,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 import java.util.Map;
-import java.util.concurrent.CompletableFuture;
+import java.util.Optional;
 
 @Configuration
 public class GraphService {
@@ -24,6 +25,8 @@ public class GraphService {
     ChatClient ttsChatClient;
     @Autowired
     LocalWeatherTool weatherTool;
+    @Autowired
+    PostgresSaver postgresSaver;
 
     @Bean
     public CompiledGraph graph() throws GraphStateException {
@@ -80,6 +83,21 @@ public class GraphService {
             }
         });
 
+        InterruptableAction interruptableAction = (nodeId, state, config) -> {
+            Optional<String> approval = state.value("approval", String.class);
+            if (approval.isEmpty()) {
+                // 返回 InterruptionMetadata 来中断执行
+                InterruptionMetadata interruption = InterruptionMetadata.builder(nodeId, state)
+                        .addMetadata("message", "等待用户输入...")
+                        .addMetadata("node", nodeId)
+                        .build();
+                return Optional.of(interruption);
+            }
+
+            return Optional.empty();
+        };
+
+
         StateGraph stateGraph = new StateGraph(keyStrategyFactory);
 
         stateGraph.addNode("chatNodeWithTool", chatNodeWithTool);
@@ -88,15 +106,20 @@ public class GraphService {
         stateGraph.addNode("endPrintNode", endPrintNode);
 
         stateGraph.addEdge(StateGraph.START, "printNode");
-        stateGraph.addConditionalEdges("printNode",routerEdgeAction,
-                Map.of("chatNodeWithTool-Action","chatNodeWithTool",
-                        "chatNodeWithoutTool-Action","chatNodeWithoutTool"));
+        stateGraph.addConditionalEdges("printNode", routerEdgeAction,
+                Map.of("chatNodeWithTool-Action", "chatNodeWithTool",
+                        "chatNodeWithoutTool-Action", "chatNodeWithoutTool"));
 
         stateGraph.addEdge("chatNodeWithTool", StateGraph.END);
 
         stateGraph.addEdge("chatNodeWithoutTool", "endPrintNode");
         stateGraph.addEdge("endPrintNode", StateGraph.END);
 
-        return stateGraph.compile();
+        return stateGraph.compile(CompileConfig.builder()
+                .saverConfig(SaverConfig.builder()
+                        .register(postgresSaver)
+                        .build())
+                //.interruptBefore("endPrintNode")
+                .build());
     }
 }
