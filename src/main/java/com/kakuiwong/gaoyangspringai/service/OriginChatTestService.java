@@ -1,5 +1,6 @@
 package com.kakuiwong.gaoyangspringai.service;
 
+import com.alibaba.fastjson.JSON;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.toolkit.StringUtils;
 import com.kakuiwong.gaoyangspringai.ai.tools.LocalWeatherTool;
@@ -14,6 +15,7 @@ import org.redisson.api.RScript;
 import org.redisson.api.RedissonClient;
 import org.redisson.client.codec.StringCodec;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.MessageType;
 import org.springframework.ai.document.Document;
 import org.springframework.ai.embedding.EmbeddingModel;
@@ -285,6 +287,8 @@ public class OriginChatTestService {
                             return;
                         }
                         String content = chatResponse.getResult().getOutput().getText();
+                        AssistantMessage output = chatResponse.getResult().getOutput();
+                        System.out.println(JSON.toJSONString(output));
                         fullResponse.append(content);
                         try {
                             emitter.send(SseEmitter.event().data(content));
