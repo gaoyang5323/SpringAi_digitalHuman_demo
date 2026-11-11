@@ -103,8 +103,4 @@ searxng:
 
 logging:
   level:
-    # SimpleLoggerAdvisorDEBUG
-    org.springframework.ai.chat.client.advisor: DEBUG
-    # OpenAI/HTTP
-    org.springframework.ai.openai: DEBUG
-    org.springframework.ai.ollama: DEBUG
+    org.springframework.ai: INFO

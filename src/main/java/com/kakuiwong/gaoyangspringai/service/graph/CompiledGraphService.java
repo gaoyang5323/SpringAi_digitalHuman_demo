@@ -1,6 +1,5 @@
 package com.kakuiwong.gaoyangspringai.service.graph;
 
-import ch.qos.logback.core.testUtil.RandomUtil;
 import com.alibaba.cloud.ai.graph.*;
 import com.alibaba.cloud.ai.graph.action.*;
 import com.alibaba.cloud.ai.graph.checkpoint.config.SaverConfig;
@@ -19,7 +18,7 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 
 @Configuration
-public class GraphService {
+public class CompiledGraphService {
 
     public final static String HUMAN_FEEDBACK = "human_feedback";
 
