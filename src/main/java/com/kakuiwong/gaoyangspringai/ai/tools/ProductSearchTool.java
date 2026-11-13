@@ -10,9 +10,8 @@ import org.springframework.ai.vectorstore.VectorStore;
 import org.springframework.stereotype.Component;
 import org.springframework.util.CollectionUtils;
 
-import java.util.stream.Collectors;
-
 import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * @author: gaoyang
@@ -23,6 +22,9 @@ import java.util.List;
 public class ProductSearchTool {
 
     private static final int TOP_K = 5;
+
+    /** 余弦相似度下限：低于该值的结果视为不相关，直接丢弃 */
+    private static final double SIMILARITY_THRESHOLD = 0.6;
 
     /** 每轮对话最多检索 2 次，防止模型在空结果时反复检索 */
     private static final int MAX_CALLS_PER_RUN = 2;
@@ -46,11 +48,12 @@ public class ProductSearchTool {
             log.info("调用工具searchProducts已达上限，本次不执行检索");
             return LIMIT_REACHED_MESSAGE;
         }
-        log.info("调用工具searchProducts, query={}", query);
+        log.info("调用工具searchProducts, query={}, similarityThreshold={}", query, SIMILARITY_THRESHOLD);
         List<Document> documents = vectorStore.similaritySearch(
                 SearchRequest.builder()
                         .query(query)
                         .topK(TOP_K)
+                        .similarityThreshold(SIMILARITY_THRESHOLD)
                         .build()
         );
         if (CollectionUtils.isEmpty(documents)) {
