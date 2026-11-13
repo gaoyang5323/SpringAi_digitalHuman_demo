@@ -6,6 +6,7 @@ import com.alibaba.cloud.ai.graph.agent.hook.hip.HumanInTheLoopHook;
 import com.alibaba.cloud.ai.graph.agent.hook.hip.ToolConfig;
 import com.alibaba.cloud.ai.graph.agent.hook.modelcalllimit.ModelCallLimitHook;
 import com.alibaba.cloud.ai.graph.checkpoint.savers.postgresql.PostgresSaver;
+import com.kakuiwong.gaoyangspringai.ai.agent.ModelCallLoggingHook;
 import com.kakuiwong.gaoyangspringai.ai.tools.OrderTool;
 import com.kakuiwong.gaoyangspringai.ai.tools.ProductSearchTool;
 import org.springframework.ai.ollama.OllamaChatModel;
@@ -41,11 +42,13 @@ public class OrderAgentConfig {
                         1. 用户咨询、挑选或比较商品时，必须先调用 searchProducts 检索商品知识库，只依据检索结果介绍商品，禁止编造商品、价格或库存。
                         2. 推荐商品后主动询问用户是否购买，并确认要购买的商品与数量。
                         3. 只有用户明确确认购买、且商品和数量都明确时，才能调用 createOrder。
-                        4. createOrder 会进入人工审核：审核通过才算下单成功；被拒绝时向用户说明原因并继续引导。
-                        5. 用简体中文简洁回答，不要假设订单一定创建成功。
+                        4. createOrder 会进入人工审核：审核通过才算下单成功；被拒绝时向用户说明原因并继续引导。成功后返回订单信息,不赘述其他内容。
+                        5. 每轮对话 searchProducts 最多调用 2 次、createOrder 最多调用 1 次，达到上限后不要再调用工具，直接基于已有信息回答。
+                        6. 用简体中文简洁回答，不要假设订单一定创建成功。
                         """)
                 .methodTools(productSearchTool, orderTool)
-                .hooks(humanHook, ModelCallLimitHook.builder().runLimit(10).build())
+                .hooks(humanHook, ModelCallLimitHook.builder().runLimit(10).build(),
+                        new ModelCallLoggingHook())
                 .saver(postgresSaver)
                 .toolExecutionTimeout(Duration.ofMinutes(3))
                 .build();

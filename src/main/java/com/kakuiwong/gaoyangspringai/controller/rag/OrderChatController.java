@@ -5,6 +5,7 @@ import com.kakuiwong.gaoyangspringai.entity.rag.OrderApprovalRequest;
 import com.kakuiwong.gaoyangspringai.entity.rag.OrderChatRequest;
 import com.kakuiwong.gaoyangspringai.entity.rag.OrderChatResult;
 import com.kakuiwong.gaoyangspringai.service.rag.OrderChatService;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -15,6 +16,7 @@ import org.springframework.web.bind.annotation.RestController;
  * @author: gaoyang
  * @Description: 订单导购对话接口：RAG 商品检索 + 创建订单人工审批
  */
+@Slf4j
 @RestController
 @RequestMapping("/rag/order")
 public class OrderChatController {
@@ -31,12 +33,17 @@ public class OrderChatController {
      */
     @PostMapping("/chat")
     public Result<OrderChatResult> chat(@RequestBody OrderChatRequest request) {
+        log.info("订单对话请求: {}", request);
         if (request == null || !StringUtils.hasText(request.msg()) || !StringUtils.hasText(request.sessionId())) {
+            log.warn("订单对话参数不完整: {}", request);
             return Result.fail("msg 和 sessionId 不能为空");
         }
         try {
-            return Result.ok(orderChatService.chat(request));
+            OrderChatResult result = orderChatService.chat(request);
+            log.info("订单对话返回: {}", result);
+            return Result.ok(result);
         } catch (Exception e) {
+            log.error("订单对话失败, sessionId={}", request.sessionId(), e);
             return Result.fail("订单对话失败: " + e.getMessage());
         }
     }
@@ -47,12 +54,17 @@ public class OrderChatController {
      */
     @PostMapping("/approval")
     public Result<OrderChatResult> approval(@RequestBody OrderApprovalRequest request) {
+        log.info("订单审批请求: {}", request);
         if (request == null || !StringUtils.hasText(request.sessionId()) || request.decision() == null) {
+            log.warn("订单审批参数不完整: {}", request);
             return Result.fail("sessionId、decision 不能为空");
         }
         try {
-            return Result.ok(orderChatService.approval(request));
+            OrderChatResult result = orderChatService.approval(request);
+            log.info("订单审批返回: {}", result);
+            return Result.ok(result);
         } catch (Exception e) {
+            log.error("订单审批失败, sessionId={}", request.sessionId(), e);
             return Result.fail("订单审批失败: " + e.getMessage());
         }
     }

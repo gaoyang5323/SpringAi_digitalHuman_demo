@@ -66,7 +66,8 @@ spring:
     # 百炼 DashScope：chat 走云端 qwen-plus（embedding 仍用本地 Ollama，向量空间不变）
     dashscope:
       base-url: https://dashscope.aliyuncs.com
-      api-key: sk-ws-H.PDYHHDH.w2hJ.MEQCIG9B6K6Gmu7kXbhAjSDXom10Urjy3-A5pdSSE3mvMNiKAiBKCfxohSJAmoN3pUUjk5dKlP_wvvIUluvBmVjorP0ieA
+      # 启动前设置环境变量 DASHSCOPE_API_KEY，缺失时启动失败而非静默使用空密钥
+      api-key: ${DASHSCOPE_API_KEY}
       chat:
         # chat 模型已在 ChatClientConfig 手动创建（dashScopeChatModel），关闭自动装配避免重复 Bean
         enabled: false

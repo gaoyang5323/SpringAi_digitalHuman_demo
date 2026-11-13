@@ -18,10 +18,54 @@
           <div v-if="m.pending" class="approval">
             <div class="approval-title">待人工审批：{{ m.pending.toolName }}</div>
             <div class="approval-desc">{{ m.pending.description || '是否批准创建订单？' }}</div>
-            <pre v-if="m.pending.arguments" class="approval-args">{{ m.pending.arguments }}</pre>
+
+            <div v-if="m.items.length" class="approval-items">
+              <div v-for="(item, idx) in m.items" :key="item.productId || idx" class="approval-item">
+                <div class="approval-item-main">
+                  <span class="approval-item-name">{{ item.name }}</span>
+                  <span class="approval-item-price">¥{{ formatPrice(item.price) }} / 件</span>
+                </div>
+                <div class="approval-item-side">
+                  <div class="qty">
+                    <button
+                      class="qty-btn"
+                      :disabled="busy || item.quantity <= 1"
+                      @click="changeQuantity(item, -1)"
+                    >
+                      −
+                    </button>
+                    <input
+                      v-model.number="item.quantity"
+                      class="qty-input"
+                      type="number"
+                      min="1"
+                      step="1"
+                      :disabled="busy"
+                      @change="normalizeQuantity(item)"
+                    />
+                    <button class="qty-btn" :disabled="busy" @click="changeQuantity(item, 1)">
+                      ＋
+                    </button>
+                  </div>
+                  <span class="approval-item-subtotal">¥{{ formatPrice(item.price * item.quantity) }}</span>
+                </div>
+              </div>
+              <div class="approval-total">合计 {{ totalCount(m) }} 件，¥{{ formatPrice(itemsTotal(m)) }}</div>
+              <div class="approval-hint">修改数量后点击「修改后下单」，按新数量创建订单。</div>
+            </div>
+            <pre v-else-if="m.pending.arguments" class="approval-args">{{ m.pending.arguments }}</pre>
+
             <div class="approval-actions">
               <button class="btn btn-primary btn-sm" :disabled="busy" @click="decide(m, 'APPROVE')">
                 批准
+              </button>
+              <button
+                v-if="m.items.length"
+                class="btn btn-ghost btn-sm"
+                :disabled="busy || !itemsValid(m)"
+                @click="decide(m, 'EDIT')"
+              >
+                修改后下单
               </button>
               <button class="btn btn-ghost btn-sm" :disabled="busy" @click="decide(m, 'REJECT')">
                 拒绝
@@ -77,13 +121,63 @@ async function scrollToBottom() {
 }
 
 function appendResult(result) {
-  const message = { role: 'assistant', content: result.answer || '' }
+  const message = { role: 'assistant', content: result.answer || '', items: [] }
   if (result.status === 'WAITING_APPROVAL' && result.pending) {
     message.pending = result.pending
+    message.items = parsePendingItems(result.pending.arguments)
     if (!message.content) message.content = '已生成待审批订单，请确认后继续。'
   }
   if (!message.content) message.content = '（无回复）'
   messages.value.push(message)
+}
+
+/** 解析 createOrder 工具调用参数中的商品列表，解析失败时退回展示原始参数 */
+function parsePendingItems(argumentsText) {
+  if (!argumentsText) return []
+  try {
+    const args = typeof argumentsText === 'string' ? JSON.parse(argumentsText) : argumentsText
+    const products = Array.isArray(args?.products) ? args.products : []
+    return products.map((product, index) => ({
+      productId: product?.productId != null ? String(product.productId) : '',
+      name: product?.name || `商品 ${index + 1}`,
+      price: Number(product?.price) || 0,
+      quantity: Math.max(1, Math.floor(Number(product?.quantity) || 1))
+    }))
+  } catch {
+    return []
+  }
+}
+
+function formatPrice(value) {
+  return (Number(value) || 0).toFixed(2)
+}
+
+function itemsTotal(message) {
+  return message.items.reduce(
+    (sum, item) => sum + (Number(item.price) || 0) * (Number(item.quantity) || 0),
+    0
+  )
+}
+
+function totalCount(message) {
+  return message.items.reduce((sum, item) => sum + (Number(item.quantity) || 0), 0)
+}
+
+function itemsValid(message) {
+  return (
+    message.items.length > 0 &&
+    message.items.every((item) => Number.isInteger(item.quantity) && item.quantity >= 1)
+  )
+}
+
+function changeQuantity(item, delta) {
+  const current = Number.isInteger(item.quantity) ? item.quantity : 1
+  item.quantity = Math.max(1, current + delta)
+}
+
+function normalizeQuantity(item) {
+  const value = Math.floor(Number(item.quantity))
+  item.quantity = Number.isFinite(value) && value >= 1 ? value : 1
 }
 
 async function send() {
@@ -107,8 +201,28 @@ async function send() {
 async function decide(message, decision) {
   if (busy.value || !message.pending) return
   const pending = message.pending
+  let products
+  if (decision === 'EDIT') {
+    if (!itemsValid(message)) {
+      toast.error('商品数量必须是大于 0 的整数')
+      return
+    }
+    products = message.items.map((item) => ({
+      productId: item.productId,
+      name: item.name,
+      price: item.price,
+      quantity: item.quantity
+    }))
+  }
   message.pending = null
-  messages.value.push({ role: 'user', content: decision === 'APPROVE' ? '批准下单' : '拒绝下单' })
+  message.items = []
+  const summary =
+    decision === 'EDIT'
+      ? `修改数量后下单：${products.map((item) => `${item.name} × ${item.quantity}`).join('，')}`
+      : decision === 'APPROVE'
+        ? '批准下单'
+        : '拒绝下单'
+  messages.value.push({ role: 'user', content: summary })
   busy.value = true
   scrollToBottom()
   try {
@@ -117,6 +231,7 @@ async function decide(message, decision) {
         sessionId: sessionId.value,
         toolCallId: pending.toolCallId,
         decision,
+        products,
         reason: decision === 'REJECT' ? '用户拒绝下单' : undefined
       })
     )
@@ -207,6 +322,105 @@ async function decide(message, decision) {
 .approval-desc {
   margin-top: 4px;
   font-size: 12.5px;
+  color: var(--text-muted);
+}
+.approval-items {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.approval-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.approval-item-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.approval-item-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.approval-item-price {
+  font-size: 11.5px;
+  color: var(--text-muted);
+}
+.approval-item-side {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+.qty {
+  display: flex;
+  align-items: center;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--bg);
+}
+.qty-btn {
+  width: 26px;
+  height: 28px;
+  border: none;
+  background: var(--bg-3);
+  color: var(--text);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+.qty-btn:hover:not(:disabled) {
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+}
+.qty-btn:disabled {
+  color: var(--text-dim);
+  cursor: not-allowed;
+}
+.qty-input {
+  width: 44px;
+  height: 28px;
+  border: none;
+  outline: none;
+  background: var(--bg);
+  color: var(--text);
+  text-align: center;
+  font-size: 13px;
+  -moz-appearance: textfield;
+}
+.qty-input::-webkit-outer-spin-button,
+.qty-input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.approval-item-subtotal {
+  min-width: 64px;
+  text-align: right;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--accent-strong);
+}
+.approval-total {
+  text-align: right;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--text);
+}
+.approval-hint {
+  margin-top: 6px;
+  font-size: 12px;
   color: var(--text-muted);
 }
 .approval-args {
