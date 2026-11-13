@@ -1,4 +1,13 @@
 spring:
+  autoconfigure:
+    exclude:
+      # 2.0.0-M1.1 打包缺陷（必须保留）：autoconfigure jar 的 imports 清单登记了未打包的
+      # DashScopeMultimodalEmbeddingAutoConfiguration，不排除则启动期装配排序直接抛 FileNotFoundException
+      - com.alibaba.cloud.ai.autoconfigure.dashscope.DashScopeMultimodalEmbeddingAutoConfiguration
+  sql:
+    init:
+      # schema.sql 使用 IF NOT EXISTS，启动时幂等创建 product_order
+      mode: always
   servlet:
     multipart:
       max-file-size: 50MB
@@ -49,8 +58,21 @@ spring:
         # 避免 syncTools Bean 触发 McpSyncClient.initialize() 导致启动超时
         tool-callback-converter: false
     model:
-      chat: ollama
-      embedding: ollama
+      chat: dashscope
+      embedding:
+        # DashScope Embedding 装配条件读 spring.ai.model.embedding.text（matchIfMissing=true，不设即激活）
+        # 显式指定 ollama 使其让位，全局仅保留 ollamaEmbeddingModel
+        text: ollama
+    # 百炼 DashScope：chat 走云端 qwen-plus（embedding 仍用本地 Ollama，向量空间不变）
+    dashscope:
+      base-url: https://dashscope.aliyuncs.com
+      api-key: sk-ws-H.PDYHHDH.w2hJ.MEQCIG9B6K6Gmu7kXbhAjSDXom10Urjy3-A5pdSSE3mvMNiKAiBKCfxohSJAmoN3pUUjk5dKlP_wvvIUluvBmVjorP0ieA
+      chat:
+        # chat 模型已在 ChatClientConfig 手动创建（dashScopeChatModel），关闭自动装配避免重复 Bean
+        enabled: false
+        options:
+          model: qwen-plus
+          temperature: 0.7
     ollama:
       base-url: http://localhost:11434
       chat:

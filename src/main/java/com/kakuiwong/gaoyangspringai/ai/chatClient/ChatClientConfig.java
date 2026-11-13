@@ -5,6 +5,9 @@ package com.kakuiwong.gaoyangspringai.ai.chatClient;
  * @Description:
  */
 
+import com.alibaba.cloud.ai.dashscope.api.DashScopeApi;
+import com.alibaba.cloud.ai.dashscope.chat.DashScopeChatModel;
+import com.alibaba.cloud.ai.dashscope.chat.DashScopeChatOptions;
 import com.alibaba.cloud.ai.graph.agent.ReactAgent;
 import com.alibaba.cloud.ai.graph.checkpoint.savers.postgresql.PostgresSaver;
 import com.kakuiwong.gaoyangspringai.ai.tools.*;
@@ -14,6 +17,7 @@ import org.springframework.ai.chat.client.advisor.MessageChatMemoryAdvisor;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.memory.MessageWindowChatMemory;
 import org.springframework.ai.chat.memory.repository.jdbc.JdbcChatMemoryRepository;
+import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.model.tool.ToolCallingManager;
 import org.springframework.ai.ollama.OllamaChatModel;
 import org.springframework.ai.ollama.api.OllamaApi;
@@ -43,6 +47,14 @@ public class ChatClientConfig {
     private Double temperature;
     @Value("${spring.ai.ollama.chat.num-predict}")
     private Integer numPredict;
+    @Value("${spring.ai.dashscope.api-key}")
+    private String dashScopeApiKey;
+    @Value("${spring.ai.dashscope.base-url}")
+    private String dashScopeBaseUrl;
+    @Value("${spring.ai.dashscope.chat.options.model:qwen-plus}")
+    private String dashScopeModel;
+    @Value("${spring.ai.dashscope.chat.options.temperature:0.7}")
+    private Double dashScopeTemperature;
 
     @Autowired
     LocalWeatherTool localWeatherTool;
@@ -66,7 +78,35 @@ public class ChatClientConfig {
         };
     }
 
+    /** 百炼 DashScope chat（qwen-plus），手动整合并作为全局默认 ChatModel */
     @Primary
+    @Bean
+    public DashScopeChatModel dashScopeChatModel(ToolExecutionExceptionProcessor toolExecutionExceptionProcessor) {
+        JdkClientHttpRequestFactory requestFactory = new JdkClientHttpRequestFactory();
+        requestFactory.setReadTimeout(Duration.ofMinutes(5));
+
+        DashScopeApi dashScopeApi = DashScopeApi.builder()
+                .apiKey(dashScopeApiKey)
+                .baseUrl(dashScopeBaseUrl)
+                .restClientBuilder(RestClient.builder().requestFactory(requestFactory))
+                .build();
+
+        DashScopeChatOptions defaultOptions = DashScopeChatOptions.builder()
+                .model(dashScopeModel)
+                .temperature(dashScopeTemperature)
+                .build();
+
+        ToolCallingManager toolCallingManager = ToolCallingManager.builder()
+                .toolExecutionExceptionProcessor(toolExecutionExceptionProcessor)
+                .build();
+
+        return DashScopeChatModel.builder()
+                .dashScopeApi(dashScopeApi)
+                .defaultOptions(defaultOptions)
+                .toolCallingManager(toolCallingManager)
+                .build();
+    }
+
     @Bean
     public OllamaChatModel ollamaChatModel(ToolExecutionExceptionProcessor toolExecutionExceptionProcessor) {
         JdkClientHttpRequestFactory requestFactory = new JdkClientHttpRequestFactory();
@@ -132,7 +172,7 @@ public class ChatClientConfig {
     }
 
     @Bean
-    public ChatClient computerChatClient(OllamaChatModel chatModel, ChatMemory chatMemory) {
+    public ChatClient computerChatClient(ChatModel chatModel, ChatMemory chatMemory) {
         return ChatClient.builder(chatModel)
                 // .defaultAdvisors(MessageChatMemoryAdvisor.builder(chatMemory).build())
                 .defaultSystem("你是计算机老师,回答相关问题")
@@ -141,7 +181,7 @@ public class ChatClientConfig {
     }
 
     @Bean
-    public ChatClient weatherChatClient(OllamaChatModel chatModel, ChatMemory chatMemory) {
+    public ChatClient weatherChatClient(ChatModel chatModel, ChatMemory chatMemory) {
         return ChatClient.builder(chatModel)
                 //.defaultAdvisors(MessageChatMemoryAdvisor.builder(chatMemory).build())
                 .defaultSystem("你是机器人客服,尽量使用自带工具查询结果,回答用户相关问题")
@@ -168,7 +208,7 @@ public class ChatClientConfig {
 
 
     @Bean
-    public ChatClient supervisorChatClient(OllamaChatModel chatModel, ChatMemory chatMemory) {
+    public ChatClient supervisorChatClient(ChatModel chatModel, ChatMemory chatMemory) {
         return ChatClient.builder(chatModel)
                 .defaultAdvisors(MessageChatMemoryAdvisor.builder(chatMemory).build())
                 .defaultSystem("你是任务调度主管,根据用户需求,调用合适的子Agent完成任务。" +
@@ -178,7 +218,7 @@ public class ChatClientConfig {
     }
 
     @Bean
-    public ChatClient originChatClient(OllamaChatModel chatModel) {
+    public ChatClient originChatClient(ChatModel chatModel) {
         return ChatClient.builder(chatModel)
                 .build();
     }

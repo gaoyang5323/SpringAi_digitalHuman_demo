@@ -1,0 +1,27 @@
+import { reactive } from 'vue'
+import { api } from './api'
+
+export const store = reactive({
+  online: null,
+  checking: false,
+  stats: { total: 0, lineageCount: 0, fileCount: 0, todayCount: 0 }
+})
+
+export async function refreshStats() {
+  if (store.checking) return
+  store.checking = true
+  try {
+    const data = await api.stats()
+    store.stats = {
+      total: Number(data.total || 0),
+      lineageCount: Number(data.lineageCount || 0),
+      fileCount: Number(data.fileCount || 0),
+      todayCount: Number(data.todayCount || 0)
+    }
+    store.online = true
+  } catch {
+    store.online = false
+  } finally {
+    store.checking = false
+  }
+}

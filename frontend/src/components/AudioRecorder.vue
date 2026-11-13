@@ -258,10 +258,11 @@ onBeforeUnmount(() => {
 
 <style scoped>
 .audio-recorder {
-  background: white;
-  border-radius: 20px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
   padding: 30px;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+  box-shadow: var(--shadow);
 }
 
 .video-container {
