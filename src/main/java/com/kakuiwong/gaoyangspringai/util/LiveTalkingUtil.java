@@ -2,6 +2,8 @@ package com.kakuiwong.gaoyangspringai.util;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
@@ -19,9 +21,48 @@ public class LiveTalkingUtil {
 
     @Value("${livetalking.base-url:http://localhost:8010}")
     private String livetalkingBaseUrl;
+    @Autowired
+    ChatClient chatClientDashScope;
 
     private final RestTemplate restTemplate = new RestTemplate();
     private final ObjectMapper objectMapper = new ObjectMapper();
+
+    public String humanSpeakLLmOrder(String text, String sessionId, String type) {
+        String url = livetalkingBaseUrl + "/human";
+
+        String content = chatClientDashScope.prompt(text).call().content();
+
+        // 构建请求体
+        Map<String, Object> requestBody = new HashMap<>();
+        requestBody.put("text", content);
+        if (sessionId != null && !sessionId.isEmpty()) {
+            requestBody.put("sessionid", sessionId);
+        }
+        if (type != null && !type.isEmpty()) {
+            requestBody.put("type", type);
+        } else {
+            requestBody.put("type", "echo");
+        }
+
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+
+        try {
+            String requestJson = objectMapper.writeValueAsString(requestBody);
+            HttpEntity<String> requestEntity = new HttpEntity<>(requestJson, headers);
+
+            ResponseEntity<String> response = restTemplate.exchange(
+                    url, HttpMethod.POST, requestEntity, String.class);
+
+            if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
+                return response.getBody();
+            }
+
+            throw new RuntimeException("LiveTalking 服务返回异常, status=" + response.getStatusCode());
+        } catch (Exception e) {
+            throw new RuntimeException("调用 LiveTalking 服务失败: " + e.getMessage(), e);
+        }
+    }
 
     /**
      * 文本驱动数字人说话

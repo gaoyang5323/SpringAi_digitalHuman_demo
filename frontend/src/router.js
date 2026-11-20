@@ -1,6 +1,6 @@
 import { reactive } from 'vue'
 
-const VALID = ['/chat', '/text-chat', '/knowledge']
+const VALID = ['/chat', '/text-chat', '/knowledge', '/realtime-audio']
 
 export const router = reactive({ path: '/chat' })
 

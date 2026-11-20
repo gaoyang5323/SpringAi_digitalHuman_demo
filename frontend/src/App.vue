@@ -11,15 +11,6 @@
 
       <nav class="sidebar-nav">
         <button
-          :class="['sidebar-item', { active: router.path === '/chat' }]"
-          @click="navigate('/chat')"
-        >
-          <svg viewBox="0 0 24 24" fill="currentColor">
-            <path d="M12,2A3,3 0 0,1 15,5V11A3,3 0 0,1 12,14A3,3 0 0,1 9,11V5A3,3 0 0,1 12,2M19,11C19,14.53 16.39,17.44 13,18V21H11V18C7.61,17.44 5,14.53 5,11H7A5,5 0 0,0 12,16A5,5 0 0,0 17,11H19Z" />
-          </svg>
-          <span>语音对话</span>
-        </button>
-        <button
           :class="['sidebar-item', { active: router.path === '/text-chat' }]"
           @click="navigate('/text-chat')"
         >
@@ -36,6 +27,24 @@
             <path d="M12,3C7.58,3 4,4.79 4,7C4,9.21 7.58,11 12,11C16.42,11 20,9.21 20,7C20,4.79 16.42,3 12,3M4,9V12C4,14.21 7.58,16 12,16C16.42,16 20,14.21 20,12V9C20,11.21 16.42,13 12,13C7.58,13 4,11.21 4,9M4,14V17C4,19.21 7.58,21 12,21C16.42,21 20,19.21 20,17V14C20,16.21 16.42,18 12,18C7.58,18 4,16.21 4,14Z" />
           </svg>
           <span>知识库</span>
+        </button>
+        <button
+          :class="['sidebar-item', { active: router.path === '/realtime-audio' }]"
+          @click="navigate('/realtime-audio')"
+        >
+          <svg viewBox="0 0 24 24" fill="currentColor">
+            <path d="M7,18H9V6H7V18M3,14H5V10H3V14M11,22H13V2H11V22M15,18H17V6H15V18M19,14H21V10H19V14Z" />
+          </svg>
+          <span>实时音频</span>
+        </button>
+        <button
+          :class="['sidebar-item', { active: router.path === '/chat' }]"
+          @click="navigate('/chat')"
+        >
+          <svg viewBox="0 0 24 24" fill="currentColor">
+            <path d="M12,2A3,3 0 0,1 15,5V11A3,3 0 0,1 12,14A3,3 0 0,1 9,11V5A3,3 0 0,1 12,2M19,11C19,14.53 16.39,17.44 13,18V21H11V18C7.61,17.44 5,14.53 5,11H7A5,5 0 0,0 12,16A5,5 0 0,0 17,11H19Z" />
+          </svg>
+          <span>语音对话</span>
         </button>
       </nav>
 
@@ -67,11 +76,13 @@ import { toasts, dismissToast } from './toast'
 import ChatView from './views/ChatView.vue'
 import TextChatView from './views/TextChatView.vue'
 import KnowledgeView from './views/KnowledgeView.vue'
+import RealtimeAudioView from './views/RealtimeAudioView.vue'
 
 const views = {
   '/chat': ChatView,
   '/text-chat': TextChatView,
-  '/knowledge': KnowledgeView
+  '/knowledge': KnowledgeView,
+  '/realtime-audio': RealtimeAudioView
 }
 
 const currentView = computed(() => views[router.path] ?? ChatView)

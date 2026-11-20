@@ -60,6 +60,13 @@ public class SpeachesUtil {
         return transcribe(file.getBytes(), file.getOriginalFilename(), file.getContentType());
     }
 
+    /**
+     * 实时转写：接收 MediaRecorder 累积的 webm/opus 音频数据
+     */
+    public String transcribeWebmChunk(byte[] webmAudio) throws IOException {
+        return transcribe(webmAudio, "audio.webm", "audio/webm");
+    }
+
     private String doTranscribe(String url, HttpEntity<ByteArrayResource> filePart) throws IOException {
 
         // 构建 multipart 请求体

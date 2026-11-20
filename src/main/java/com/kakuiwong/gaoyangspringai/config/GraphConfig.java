@@ -26,7 +26,7 @@ public class GraphConfig {
                 .host(host)
                 .user(user)
                 .password(password)
-                .dropTablesFirst(false)
+                .dropTablesFirst(true)
                 .build();
     }
 }

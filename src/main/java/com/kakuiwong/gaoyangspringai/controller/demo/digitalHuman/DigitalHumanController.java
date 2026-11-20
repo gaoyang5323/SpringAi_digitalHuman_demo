@@ -86,7 +86,8 @@ public class DigitalHumanController {
                 return result;
             }
 
-            String response = liveTalkingUtil.humanSpeak(text, sessionId, type);
+            //String response = liveTalkingUtil.humanSpeak(text, sessionId, type);
+            String response = liveTalkingUtil.humanSpeakLLmOrder(text, sessionId, type);
             result.put("success", true);
             result.put("data", response);
             result.put("message", "文本已发送到数字人");

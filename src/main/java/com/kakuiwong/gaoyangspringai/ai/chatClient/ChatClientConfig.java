@@ -218,6 +218,13 @@ public class ChatClientConfig {
     }
 
     @Bean
+    public ChatClient chatClientDashScope(DashScopeChatModel dashScopeChatModel) {
+        return ChatClient.builder(dashScopeChatModel)
+                .defaultSystem("你是百科全书老师")
+                .build();
+    }
+
+    @Bean
     public ChatClient originChatClient(ChatModel chatModel) {
         return ChatClient.builder(chatModel)
                 .build();

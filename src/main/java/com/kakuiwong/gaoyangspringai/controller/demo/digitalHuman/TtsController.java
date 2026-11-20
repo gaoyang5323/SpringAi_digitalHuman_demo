@@ -56,7 +56,7 @@ public class TtsController {
             } catch (IOException e) {
                 log.error("",e);
             }
-            String response = liveTalkingUtil.humanSpeak(text, sessionId, "echo");
+            String response = liveTalkingUtil.humanSpeakLLmOrder(text, sessionId, "echo");
             log.info(response);
         });
     }
