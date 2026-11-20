@@ -8,7 +8,7 @@
     <div class="card">
       <div class="card-head">
         <span class="card-title">实时转文字</span>
-        <span :class="['badge', { 'badge-live': isActive }]">{{ statusText }}</span>
+        <span :class="['badge', { 'badge-live': isActive && !isReconnecting }]">{{ statusText }}</span>
       </div>
       <div class="card-body">
         <div class="rt-controls">
@@ -24,7 +24,7 @@
           <span class="rt-hint dim">停顿 3 秒断句 · 单段最长 20 秒 · 不限总时长</span>
         </div>
 
-        <div :class="['transcript', { live: isActive }]">
+        <div :class="['transcript', { live: isActive && !isReconnecting }]">
           <p v-if="!segmentsText && !isSpeaking" class="dim">
             点击「开始实时转文字」后，每段说话内容会在此依次显示…
           </p>
@@ -45,6 +45,10 @@ const MAX_UTTERANCE_MS = 20000
 const VAD_INTERVAL_MS = 80
 const SPEECH_RMS = 0.02
 const ONSET_FRAMES = 2
+const HEARTBEAT_MS = 10000
+const PONG_TIMEOUT_MS = 8000
+const MAX_RECONNECT_ATTEMPTS = 6
+const QUEUE_SEND_GAP_MS = 2100
 
 const segmentsText = ref('')
 const segmentCount = ref(0)
@@ -58,17 +62,25 @@ let analyser = null
 let vadBuffer = null
 let vadTimer = null
 let sessionTimer = null
+let heartbeatTimer = null
+let reconnectTimer = null
+let queuedSendTimer = null
 let mediaRecorder = null
 let chunks = []
+let pendingBlobs = []
 let utteranceTimer = null
 let finalTimer = null
 let lastVoiceAt = 0
 let loudFrames = 0
 let stopping = false
 let pendingStop = false
+let intentionalClose = false
+let reconnectAttempts = 0
+let pendingPingAt = 0
 
-const isActive = computed(() => status.value === 'listening' || status.value === 'speaking')
+const isActive = computed(() => ['listening', 'speaking', 'reconnecting'].includes(status.value))
 const isSpeaking = computed(() => status.value === 'speaking')
+const isReconnecting = computed(() => status.value === 'reconnecting')
 const isBusy = computed(() => ['requesting', 'connecting', 'finishing'].includes(status.value))
 
 const buttonText = computed(() => {
@@ -86,7 +98,8 @@ const statusText = computed(
       connecting: '连接中',
       listening: '监听中',
       speaking: '收音中',
-      finishing: '收尾中'
+      finishing: '收尾中',
+      reconnecting: '重连中'
     })[status.value]
 )
 
@@ -111,6 +124,9 @@ const start = async () => {
   segmentsText.value = ''
   segmentCount.value = 0
   elapsed.value = 0
+  reconnectAttempts = 0
+  pendingBlobs = []
+  intentionalClose = false
   status.value = 'requesting'
 
   try {
@@ -130,8 +146,16 @@ const start = async () => {
   }
 
   status.value = 'connecting'
+  openSocket(false)
+}
+
+const openSocket = (isReconnect) => {
   ws = new WebSocket(wsUrl())
+
   ws.onopen = async () => {
+    reconnectAttempts = 0
+    pendingPingAt = 0
+    startHeartbeat()
     try {
       await setupVad()
     } catch (err) {
@@ -140,16 +164,132 @@ const start = async () => {
       return
     }
     status.value = 'listening'
-    sessionTimer = setInterval(() => {
-      elapsed.value++
-    }, 1000)
+    if (!sessionTimer) {
+      sessionTimer = setInterval(() => {
+        elapsed.value++
+      }, 1000)
+    }
+    if (isReconnect) {
+      toast.success('已重新连接，继续转写')
+      flushPendingBlobs()
+    }
   }
+
   ws.onmessage = onMessage
   ws.onerror = () => console.error('实时转写 WebSocket 异常')
   ws.onclose = () => {
-    if (status.value !== 'idle') toast.error('连接已断开，实时转写中止')
-    cleanup()
+    if (intentionalClose) return
+    handleConnectionLost()
   }
+}
+
+const startHeartbeat = () => {
+  stopHeartbeat()
+  pendingPingAt = 0
+  heartbeatTimer = setInterval(() => {
+    if (!ws || ws.readyState !== WebSocket.OPEN) return
+    const now = performance.now()
+    if (pendingPingAt && now - pendingPingAt > PONG_TIMEOUT_MS) {
+      console.warn('实时转写心跳超时，准备重连')
+      handleConnectionLost()
+      return
+    }
+    pendingPingAt = now
+    ws.send('ping')
+  }, HEARTBEAT_MS)
+}
+
+const stopHeartbeat = () => {
+  if (heartbeatTimer) {
+    clearInterval(heartbeatTimer)
+    heartbeatTimer = null
+  }
+  pendingPingAt = 0
+}
+
+const handleConnectionLost = () => {
+  if (intentionalClose || !stream) {
+    cleanup()
+    return
+  }
+  stopVad()
+  stopHeartbeat()
+  if (utteranceTimer) {
+    clearTimeout(utteranceTimer)
+    utteranceTimer = null
+  }
+  if (mediaRecorder) {
+    const recorder = mediaRecorder
+    mediaRecorder = null
+    stopping = true
+    if (recorder.state !== 'inactive') {
+      try {
+        recorder.stop()
+      } catch {
+        stopping = false
+      }
+    }
+  }
+  if (audioCtx) {
+    audioCtx.close().catch(() => {})
+    audioCtx = null
+  }
+  analyser = null
+  vadBuffer = null
+  if (ws) {
+    const socket = ws
+    ws = null
+    socket.onopen = null
+    socket.onmessage = null
+    socket.onerror = null
+    socket.onclose = null
+    if (socket.readyState === WebSocket.OPEN || socket.readyState === WebSocket.CONNECTING) {
+      try {
+        socket.close()
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+  if (pendingStop) {
+    cleanup()
+    return
+  }
+  scheduleReconnect()
+}
+
+const scheduleReconnect = () => {
+  if (intentionalClose || reconnectTimer) return
+  if (!stream) {
+    cleanup()
+    return
+  }
+  if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+    toast.error('连接已断开，重连失败')
+    cleanup()
+    return
+  }
+  reconnectAttempts++
+  status.value = 'reconnecting'
+  const delay = Math.min(1000 * 2 ** (reconnectAttempts - 1), 10000)
+  if (reconnectAttempts === 1) toast.info('连接断开，正在自动重连…')
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null
+    openSocket(true)
+  }, delay)
+}
+
+const flushPendingBlobs = () => {
+  if (queuedSendTimer || pendingBlobs.length === 0) return
+  const sendNext = () => {
+    queuedSendTimer = null
+    if (!ws || ws.readyState !== WebSocket.OPEN || pendingBlobs.length === 0) return
+    ws.send(pendingBlobs.shift())
+    if (pendingBlobs.length > 0) {
+      queuedSendTimer = setTimeout(sendNext, QUEUE_SEND_GAP_MS)
+    }
+  }
+  sendNext()
 }
 
 const setupVad = async () => {
@@ -229,8 +369,12 @@ const onUtteranceStop = () => {
   const blob = new Blob(chunks, { type: 'audio/webm' })
   chunks = []
   stopping = false
-  if (blob.size > 0 && ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(blob)
+  if (blob.size > 0) {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(blob)
+    } else if (!intentionalClose) {
+      pendingBlobs.push(blob)
+    }
   }
   if (pendingStop) {
     pendingStop = false
@@ -255,26 +399,38 @@ const stop = () => {
   status.value = 'finishing'
   pendingStop = true
   stopVad()
+  stopHeartbeat()
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer)
+    reconnectTimer = null
+  }
   if (mediaRecorder) {
     stopUtterance()
-  } else {
+  } else if (ws && ws.readyState === WebSocket.OPEN) {
     pendingStop = false
     sendStop()
+  } else {
+    cleanup()
   }
 }
 
 const onMessage = (event) => {
+  pendingPingAt = 0
   let msg
   try {
     msg = JSON.parse(event.data)
   } catch {
     return
   }
+  if (msg.type === 'pong') {
+    return
+  }
   if (msg.type === 'segment') {
-    segmentCount.value = msg.index || segmentCount.value + 1
+    segmentCount.value++
     if (msg.text) segmentsText.value += msg.text
   } else if (msg.type === 'final') {
-    if (msg.text) segmentsText.value = msg.text
+    // 重连后服务端只持有新会话文本，本地已累计的内容优先
+    if (!segmentsText.value && msg.text) segmentsText.value = msg.text
     cleanup()
   } else if (msg.type === 'error') {
     toast.error(msg.message || '语音识别失败')
@@ -302,7 +458,17 @@ const stopVad = () => {
 }
 
 const cleanup = () => {
+  intentionalClose = true
   stopVad()
+  stopHeartbeat()
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer)
+    reconnectTimer = null
+  }
+  if (queuedSendTimer) {
+    clearTimeout(queuedSendTimer)
+    queuedSendTimer = null
+  }
   if (sessionTimer) {
     clearInterval(sessionTimer)
     sessionTimer = null
@@ -330,8 +496,10 @@ const cleanup = () => {
     }
   }
   chunks = []
+  pendingBlobs = []
   stopping = false
   pendingStop = false
+  reconnectAttempts = 0
   if (stream) {
     stream.getTracks().forEach((track) => track.stop())
     stream = null

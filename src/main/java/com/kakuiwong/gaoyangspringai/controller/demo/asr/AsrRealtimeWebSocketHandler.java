@@ -3,6 +3,7 @@ package com.kakuiwong.gaoyangspringai.controller.demo.asr;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.houbb.opencc4j.util.ZhConverterUtil;
 import com.kakuiwong.gaoyangspringai.util.SpeachesUtil;
+import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.BinaryMessage;
@@ -17,11 +18,14 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ScheduledFuture;
+import java.util.concurrent.TimeUnit;
 
 /**
  * @author: gaoyang
  * @Description: 实时语音转文字：前端把「停顿 3 秒断句、单段最长 20 秒」切好的一段语音
- * 以完整 webm 推送，后端逐段转写并追加，历史音频不再重复转写
+ * 以完整 webm 推送，后端逐段转写并追加；客户端定时 ping，服务端对无心跳连接主动断连
  */
 @Slf4j
 @Component
@@ -32,17 +36,35 @@ public class AsrRealtimeWebSocketHandler extends BinaryWebSocketHandler {
     private static final long MAX_SEGMENT_BYTES = 4L * 1024 * 1024;
     /** 同一连接两次语音段提交的最小间隔，避免 2 秒内重复上传 */
     private static final long SEGMENT_MIN_INTERVAL_MILLIS = 2000L;
+    /** 超过该时长没有任何消息（客户端每 10 秒 ping）判定连接已死 */
+    private static final long HEARTBEAT_TIMEOUT_MILLIS = 45_000L;
+    private static final long WATCHDOG_INTERVAL_SECONDS = 15L;
 
     private final SpeachesUtil speachesUtil;
     private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ScheduledExecutorService heartbeatScheduler = Executors.newSingleThreadScheduledExecutor(r -> {
+        Thread thread = new Thread(r, "asr-heartbeat");
+        thread.setDaemon(true);
+        return thread;
+    });
 
     public AsrRealtimeWebSocketHandler(SpeachesUtil speachesUtil) {
         this.speachesUtil = speachesUtil;
     }
 
+    @PreDestroy
+    public void shutdownScheduler() {
+        heartbeatScheduler.shutdownNow();
+    }
+
     @Override
     public void afterConnectionEstablished(WebSocketSession session) {
-        session.getAttributes().put(SESSION_STATE, new SessionState());
+        SessionState state = new SessionState();
+        state.lastActiveAtMillis = System.currentTimeMillis();
+        session.getAttributes().put(SESSION_STATE, state);
+        state.watchdog = heartbeatScheduler.scheduleAtFixedRate(
+                () -> checkHeartbeat(session, state),
+                WATCHDOG_INTERVAL_SECONDS, WATCHDOG_INTERVAL_SECONDS, TimeUnit.SECONDS);
         sendJson(session, Map.of("type", "ready"));
     }
 
@@ -69,13 +91,13 @@ public class AsrRealtimeWebSocketHandler extends BinaryWebSocketHandler {
             if (state.closed) {
                 return;
             }
-            long now = System.currentTimeMillis();
-            if (now - state.lastSegmentAtMillis < SEGMENT_MIN_INTERVAL_MILLIS) {
-                log.warn("语音段提交过于频繁，已忽略: sessionId={}, interval={}ms",
-                        session.getId(), now - state.lastSegmentAtMillis);
+            state.lastActiveAtMillis = System.currentTimeMillis();
+            long interval = state.lastActiveAtMillis - state.lastSegmentAtMillis;
+            if (interval < SEGMENT_MIN_INTERVAL_MILLIS) {
+                log.warn("语音段提交过于频繁，已忽略: sessionId={}, interval={}ms", session.getId(), interval);
                 return;
             }
-            state.lastSegmentAtMillis = now;
+            state.lastSegmentAtMillis = state.lastActiveAtMillis;
             index = ++state.segmentCount;
         }
         try {
@@ -88,7 +110,16 @@ public class AsrRealtimeWebSocketHandler extends BinaryWebSocketHandler {
     @Override
     protected void handleTextMessage(WebSocketSession session, TextMessage message) {
         SessionState state = stateOf(session);
-        if (state != null && "stop".equalsIgnoreCase(message.getPayload().trim())) {
+        if (state == null) {
+            return;
+        }
+        String payload = message.getPayload().trim();
+        synchronized (state) {
+            state.lastActiveAtMillis = System.currentTimeMillis();
+        }
+        if ("ping".equalsIgnoreCase(payload)) {
+            sendJson(session, Map.of("type", "pong"));
+        } else if ("stop".equalsIgnoreCase(payload)) {
             finish(session, state);
         }
     }
@@ -100,6 +131,7 @@ public class AsrRealtimeWebSocketHandler extends BinaryWebSocketHandler {
             synchronized (state) {
                 state.closed = true;
             }
+            cancelWatchdog(state);
             state.executor.shutdownNow();
         }
     }
@@ -108,6 +140,29 @@ public class AsrRealtimeWebSocketHandler extends BinaryWebSocketHandler {
     public void handleTransportError(WebSocketSession session, Throwable exception) {
         log.warn("实时转写连接异常: sessionId={}, error={}", session.getId(), exception.getMessage());
         closeQuietly(session, CloseStatus.SERVER_ERROR);
+    }
+
+    /**
+     * 客户端每 10 秒 ping 一次，长时间无任何消息则判定断线并关闭
+     */
+    private void checkHeartbeat(WebSocketSession session, SessionState state) {
+        synchronized (state) {
+            if (state.closed) {
+                cancelWatchdog(state);
+                return;
+            }
+            if (state.finishing) {
+                return;
+            }
+            if (System.currentTimeMillis() - state.lastActiveAtMillis <= HEARTBEAT_TIMEOUT_MILLIS) {
+                return;
+            }
+            state.closed = true;
+        }
+        log.warn("心跳超时，关闭连接: sessionId={}", session.getId());
+        sendError(session, "心跳超时，连接已断开");
+        closeQuietly(session, CloseStatus.SESSION_NOT_RELIABLE);
+        state.executor.shutdownNow();
     }
 
     /**
@@ -157,11 +212,24 @@ public class AsrRealtimeWebSocketHandler extends BinaryWebSocketHandler {
                 synchronized (state) {
                     state.closed = true;
                 }
+                cancelWatchdog(state);
                 state.executor.shutdown();
             });
         } catch (Exception e) {
             log.warn("提交收尾任务失败: sessionId={}, error={}", session.getId(), e.getMessage());
+            cancelWatchdog(state);
             state.executor.shutdown();
+        }
+    }
+
+    private void cancelWatchdog(SessionState state) {
+        ScheduledFuture<?> future;
+        synchronized (state) {
+            future = state.watchdog;
+            state.watchdog = null;
+        }
+        if (future != null) {
+            future.cancel(false);
         }
     }
 
@@ -210,6 +278,8 @@ public class AsrRealtimeWebSocketHandler extends BinaryWebSocketHandler {
         private final StringBuilder transcript = new StringBuilder();
         private int segmentCount;
         private long lastSegmentAtMillis;
+        private long lastActiveAtMillis;
+        private ScheduledFuture<?> watchdog;
         private boolean finishing;
         private boolean closed;
     }
